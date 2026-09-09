@@ -1,0 +1,10 @@
+.env
+olist.duckdb
+traces.jsonl
+__pycache__/
+*.pyc
+archive/
+*.docx
+archive/
+snippets/
+CLAUDE.md

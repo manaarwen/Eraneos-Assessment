@@ -1,0 +1,7 @@
+duckdb
+streamlit
+anthropic
+pandas
+python-dotenv
+sqlglot
+scikit-learn
