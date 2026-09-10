@@ -14,7 +14,7 @@
    ```
 
 ### Interactive UI
-Ask questions about the Olist dataset or predict a bad user review (possible at purchase time or post delivery).
+Ask questions about the Olist dataset or predict a bad user review (possible at purchase time or after delivery).
 ```bash
 streamlit run app.py 
 ```

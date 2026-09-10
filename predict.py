@@ -23,9 +23,8 @@ WITH review AS (
 ),
 items AS (
     SELECT order_id,
-           SUM(price)         AS price_total,
-           SUM(freight_value) AS freight_total,
-           COUNT(*)           AS n_items
+           SUM(price) AS price_total,
+           COUNT(*)   AS n_items
     FROM order_items
     GROUP BY order_id
 ),
@@ -33,14 +32,6 @@ payments AS (
     SELECT order_id, MAX(payment_installments) AS installments
     FROM order_payments
     GROUP BY order_id
-),
-seller_states AS (
-    SELECT oi.order_id,
-           COUNT(DISTINCT s.seller_state) AS n_seller_states,
-           MAX(s.seller_state)            AS a_seller_state
-    FROM order_items oi
-    JOIN sellers s ON s.seller_id = oi.seller_id
-    GROUP BY oi.order_id
 ),
 primary_seller AS (
     SELECT order_id, seller_id FROM (
@@ -52,22 +43,19 @@ primary_seller AS (
 SELECT
     o.order_purchase_timestamp,
     CAST(r.review_score <= 3 AS INTEGER) AS bad_review,
+    r.review_score,
     DATE_DIFF('day', o.order_purchase_timestamp, o.order_estimated_delivery_date)     AS promised_days,
     DATE_DIFF('day', o.order_purchase_timestamp, o.order_delivered_customer_date)     AS delivery_days,
     DATE_DIFF('day', o.order_estimated_delivery_date, o.order_delivered_customer_date) AS days_late,
     i.price_total,
-    i.freight_total,
     i.n_items,
     p.installments,
-    CAST(ss.n_seller_states = 1 AND ss.a_seller_state = c.customer_state AS INTEGER) AS same_state,
     ps.seller_id
 FROM orders o
-JOIN review         r  ON r.order_id    = o.order_id
-JOIN customers      c  ON c.customer_id = o.customer_id
-JOIN items          i  ON i.order_id    = o.order_id
-JOIN payments       p  ON p.order_id    = o.order_id
-JOIN seller_states  ss ON ss.order_id   = o.order_id
-JOIN primary_seller ps ON ps.order_id   = o.order_id
+JOIN review         r  ON r.order_id  = o.order_id
+JOIN items          i  ON i.order_id  = o.order_id
+JOIN payments       p  ON p.order_id  = o.order_id
+JOIN primary_seller ps ON ps.order_id = o.order_id
 WHERE o.order_status = 'delivered'
   AND o.order_delivered_customer_date IS NOT NULL
 """
@@ -75,10 +63,8 @@ WHERE o.order_status = 'delivered'
 AT_PURCHASE_FEATURES = [
     "promised_days",
     "log_price",
-    "log_freight",
     "n_items",
     "installments",
-    "same_state",
     "seller_hist_bad",
 ]
 POST_DELIVERY_FEATURES = AT_PURCHASE_FEATURES + [
@@ -90,25 +76,23 @@ POST_DELIVERY_FEATURES = AT_PURCHASE_FEATURES + [
 AT_PURCHASE_USER_FEATURES = [
     "promised_days",
     "price_total",
-    "freight_total",
     "n_items",
     "installments",
-    "same_state",
     "seller_hist_bad",
 ]
 POST_DELIVERY_USER_FEATURES = AT_PURCHASE_USER_FEATURES + ["delivery_days", "days_late"]
 USER_FEATURES = POST_DELIVERY_USER_FEATURES
 
-IGNORED_FEATURES = ["product_category", "customer_state"]
+# Mentioned often enough in questions to be worth recognising, but not model
+# inputs: each one was measured on the holdout and did not earn its place.
+IGNORED_FEATURES = ["product_category", "customer_state", "freight_total", "same_state"]
 
 
 FEATURE_DESCRIPTIONS = {
     "promised_days": "Days from purchase to the promised delivery date",
     "price_total": "Total order value in reais (R$), all items",
-    "freight_total": "Total shipping cost in reais (R$), all items",
     "n_items": "Number of items on the order",
     "installments": "Number of payment installments",
-    "same_state": "1 if the seller is in the customer's state, 0 if not",
     "seller_hist_bad": "Seller's past bad-review rate, 0 to 1 (0.2 is typical)",
     "delivery_days": "Days the delivery actually took, purchase to arrival",
     "days_late": "Days later than promised - negative means it arrived early",
@@ -122,7 +106,6 @@ def _add_derived(df: pd.DataFrame) -> pd.DataFrame:
     """Add the derived columns the model is actually fit on."""
     df = df.copy()
     df["log_price"] = np.log1p(df["price_total"])
-    df["log_freight"] = np.log1p(df["freight_total"])
     df["is_late"] = (df["days_late"] > 0).astype(int)
     return df
 
@@ -175,6 +158,18 @@ def _features_for(mode: str) -> list[str]:
 
 
 _auc_cache = {}
+_lift_cache = {}
+
+#Percentage of orders assumed the business can afford to act on
+BUDGET = 0.10
+
+
+def _holdout_scores(mode: str):
+    """Predicted risk for every holdout order, plus the holdout frame itself."""
+    pipeline, _ = get_model(mode)
+    df = load_frame()
+    test = df.iloc[int(len(df) * TRAIN_FRACTION) :]
+    return pipeline.predict_proba(test[_features_for(mode)])[:, 1], test
 
 
 def holdout_auc(mode: str) -> float:
@@ -182,13 +177,42 @@ def holdout_auc(mode: str) -> float:
     if mode not in _auc_cache:
         from sklearn.metrics import roc_auc_score
 
-        pipeline, _ = get_model(mode)
-        df = load_frame()
-        test = df.iloc[int(len(df) * TRAIN_FRACTION) :]
-        features = _features_for(mode)
-        p = pipeline.predict_proba(test[features])[:, 1]
+        p, test = _holdout_scores(mode)
         _auc_cache[mode] = roc_auc_score(test["bad_review"], p)
     return _auc_cache[mode]
+
+
+def holdout_lift(mode: str, budget: float = BUDGET) -> dict:
+    """What a `budget`-sized intervention list would actually catch.
+
+    AUC asks a question nobody acts on ("rank a random good order against a
+    random bad one"). This ranks the holdout by predicted risk, takes the
+    riskiest `budget` share, and reports what is inside that slice - which is
+    the decision a business actually makes when it can only afford to call,
+    expedite or comp a limited number of orders.
+    """
+    key = (mode, budget)
+    if key not in _lift_cache:
+        p, test = _holdout_scores(mode)
+        n = int(len(test) * budget)
+        flagged = np.argsort(-p)[:n]
+
+        bad = test["bad_review"].values
+        one_star = (test["review_score"].values == 1).astype(int)
+        base_rate = bad.mean()
+        precision = bad[flagged].mean()
+
+        _lift_cache[key] = {
+            "budget": budget,
+            "n_flagged": n,
+            "n_total": len(test),
+            "base_rate": base_rate,
+            "precision": precision,
+            "recall": bad[flagged].sum() / bad.sum(),
+            "lift": precision / base_rate,
+            "one_star_recall": one_star[flagged].sum() / one_star.sum(),
+        }
+    return _lift_cache[key]
 
 
 @dataclass
@@ -436,6 +460,14 @@ def _report() -> None:
         lr = pipeline.named_steps["logisticregression"]
         for name, coef in sorted(zip(features, lr.coef_[0]), key=lambda t: -abs(t[1])):
             print(f"    {name:16s} {coef:+.3f}")
+
+        lift = holdout_lift(mode)
+        print(f"  at a {lift['budget']:.0%} intervention budget "
+              f"({lift['n_flagged']:,} of {lift['n_total']:,} orders):")
+        print(f"    precision {lift['precision']:.3f}   (random targeting = {lift['base_rate']:.3f})")
+        print(f"    lift      {lift['lift']:.2f}x  - times better than acting at random")
+        print(f"    recall    {lift['recall']:.3f}   of all bad reviews land in this slice")
+        print(f"    1-star    {lift['one_star_recall']:.3f}   of all 1-star reviews land in this slice")
 
         print("  calibration (predicted vs observed, by decile):")
         buckets = pd.qcut(p, 10, duplicates="drop")

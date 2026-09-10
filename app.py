@@ -6,19 +6,19 @@ import pandas as pd
 import streamlit as st
 
 from nl2sql import TruncatedResponse, answer_question, explain_result
-from predict import FEATURE_DESCRIPTIONS, answer_prediction, holdout_auc
+from predict import FEATURE_DESCRIPTIONS, answer_prediction, holdout_auc, holdout_lift
 from router import classify
 from tracing import new_record, write_turn
 
 st.title("Talk With the Olist E-commerce Dataset ")
 
-# 5 examples: 2 for the predict path, 2 for the sql path, and 1 that is unanswerable.
+# 5 examples: 2 for the predict path (1 for each mode), 2 for the sql path, and 1 that is unanswerable.
 EXAMPLE_QUESTIONS = [
-    "average review score by product category",
-    "avg delivery time when seller is in the same state as customer",
-    "a R$150 order with 2 items that arrives 10 days late",
-    "what if a seller with a 30% bad review rate ships an order that arrives 5 days early?",
-    "what is the average age of our customers?",
+    "What is the average review score by product category?",
+    "What is the average delivery time when seller is in the same state as customer?",
+    "What is the probability of a bad review for a R$150 order where the seller has a 20% bad review rate and the promised delivery time is 5 days?",
+    "What if a seller with promised delivery time of 20 days and it arrived 3 days later?",
+    "What is the average age of our customers?", # unanswerable because the dataset has no customer age
 ]
 
 
@@ -54,10 +54,9 @@ def render_prediction(prediction) -> None:
     if prediction.ignored:
         mentioned = ", ".join(f"{k} = {v}" for k, v in prediction.ignored.items())
         st.warning(
-            f"Ignored: {mentioned}. Product category and customer state are not "
-            "inputs to this model. Both were measured against the feature set "
-            "and added too little to justify the extra columns, so they were "
-            "left out."
+            f"Ignored: {mentioned}. These are not inputs to this model. Each was "
+            "measured against the feature set on the holdout data and found to be irrelevant,"
+            "so they were left out."
         )
 
     if prediction.error:
@@ -82,6 +81,17 @@ def render_prediction(prediction) -> None:
             f"on unseen data, where 1.0 is perfect and 0.5 is random guessing. "
             f"The model is not very good at this, so treat the probability as directional only."
         )
+
+    # given a budget to call, expedite or comp orders, who should be on the list?
+    lift = holdout_lift(prediction.mode)
+    st.caption(
+        f"Ranking the holdout by risk and acting on the top {lift['budget']:.0%} ({lift['n_flagged']:,} "
+        f" of {lift['n_total']:,} orders), {lift['precision']:.0%} of them really do get a bad review"
+        f", versus {lift['base_rate']:.0%} if you picked at random. **{lift['lift']:.1f}x better than chance**."
+        f" That slice contains {lift['recall']:.0%} of all bad reviews and {lift['one_star_recall']:.0%} of all 1-star reviews. "
+        f"Note that this is based on the holdout data, not your question. The model ranks orders by risk, but the actual probability of a bad review for any one order is not known. "
+        f"Also note that if post-delivery features are used, this is not a forecast but a what-if analysis of orders that already happened."
+    )
 
     if prediction.out_of_range:
         st.warning(
