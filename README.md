@@ -3,11 +3,12 @@
 ## How to Run
 
 ### Setup (one-time)
-1. Create a `.env` file in the repo root and add your Claude API key:
+1. Download the Olist Brazilian E-Commerce dataset (access through: https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce) and place the extracted folder as archive/ in the repo root.
+2. Create a `.env` file in the repo root and add your Claude API key:
    ```
    ANTHROPIC_API_KEY=your-key-here
    ```
-2. Install dependencies and load data:
+3. Install dependencies and load data:
    ```bash
    pip install -r requirements.txt
    python load_data.py  
