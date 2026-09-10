@@ -97,8 +97,7 @@ def classify(question: str) -> Route:
         if block.type == "tool_use":
             payload = block.input
             break
-
-
+        
     if payload is None or "route" not in payload or "reason" not in payload:
         raise TruncatedResponse("Routing call did not return a classification.")
 

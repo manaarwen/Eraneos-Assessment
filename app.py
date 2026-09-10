@@ -53,7 +53,6 @@ def render_prediction(prediction) -> None:
     """Show the prediction result in the UI, with explanations."""
     if prediction.ignored:
         mentioned = ", ".join(f"{k} = {v}" for k, v in prediction.ignored.items())
-       
         st.warning(
             f"Ignored: {mentioned}. Product category and customer state are not "
             "inputs to this model. Both were measured against the feature set "
@@ -134,8 +133,6 @@ if st.session_state.pop("run", False):
         route = classify(question)
         record["mode"] = route.route
         record["route_reason"] = route.reason
-
-
         st.caption(f"Routed to **{route.route}** — {route.reason}".replace("$", r"\$"))
 
         if route.route == "predict":

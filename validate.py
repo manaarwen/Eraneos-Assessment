@@ -1,4 +1,4 @@
-"""Gate that validates SQL before it is sent to DuckDB. (Prevents the model from executing)"""
+"""Validates SQL before executing."""
 
 from pathlib import Path
 
@@ -50,7 +50,7 @@ def validate_sql(sql: str) -> list[str]:
 
     tables, columns = _load_schema()
 
-    
+    #Track CTE and alias names so we don't falsely use them as unknown column.
     cte_names = {cte.alias.lower() for cte in stmt.find_all(exp.CTE) if cte.alias}
     alias_names = {a.alias.lower() for a in stmt.find_all(exp.Alias) if a.alias}
 

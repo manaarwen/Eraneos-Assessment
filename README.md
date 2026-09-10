@@ -10,12 +10,13 @@
 2. Install dependencies and load data:
    ```bash
    pip install -r requirements.txt
-   python load_data.py  # loads CSV files from archive/ into olist.duckdb
+   python load_data.py  
    ```
 
 ### Interactive UI
+Ask questions about the Olist dataset or predict a bad user review (possible at purchase time or post delivery).
 ```bash
-streamlit run app.py  # ask natural language questions or predict review scores
+streamlit run app.py 
 ```
 
 ### Evaluate the Prediction Model

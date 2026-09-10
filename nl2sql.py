@@ -76,7 +76,7 @@ def run_sql(sql: str) -> pd.DataFrame:
 
 
 def explain_result(question: str, sql: str, df: pd.DataFrame) -> str:
-    """Ask the model to explain the query result in plain English. """
+    """Ask the model to explain the query result in plain English."""
     if len(df) <= 20:
         preview = df.head(20).to_string(index=False)
         scope_note = ""
@@ -131,8 +131,8 @@ class Answer:
 
 def _log_attempt(n: int, sql: str, outcome: str, detail: str | None) -> None:
     """Print one attempt to stdout so every attempt is visible while the
-    app runs, not just the one that succeeded.
-    """
+    app runs, not just the one that succeeded."""
+
     print(f"--- attempt {n}: {outcome} ---")
     print(sql)
     if detail:
@@ -140,8 +140,8 @@ def _log_attempt(n: int, sql: str, outcome: str, detail: str | None) -> None:
 
 
 def answer_question(question: str) -> Answer:
-    """Generate SQL, validate it, run it. Retry with the failure fed
-    back to the model as repair context, up to MAX_ATTEMPTS times total."""
+    """Generate SQL, validate it, run it. Retry with the failure 
+    feedbackup up to MAX_ATTEMPTS times total."""
 
     print(f"=== question: {question} ===")
 

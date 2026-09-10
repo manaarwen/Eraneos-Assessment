@@ -1,4 +1,4 @@
-"""The prediction path: "what review score will this order get? With two options: at purchase (before delivery) and post delivery (after delivery)."""
+"""Predict order review scores in two modes: at-purchase and post-delivery."""
 
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -43,11 +43,6 @@ seller_states AS (
     GROUP BY oi.order_id
 ),
 primary_seller AS (
-    -- An order can have items from several sellers. The seller of the most
-    -- expensive item is taken as "the" seller, so seller history has one
-    -- value per order. Arbitrary for the rare multi-seller order (3% of them),
-    -- but it has to collapse to one row somehow and "who supplied most of the
-    -- order value" is the most defensible choice.
     SELECT order_id, seller_id FROM (
         SELECT oi.order_id, oi.seller_id,
                ROW_NUMBER() OVER (PARTITION BY oi.order_id ORDER BY oi.price DESC) AS rn
@@ -248,12 +243,11 @@ def predict(stated: dict, ignored: dict | None = None) -> Prediction:
     X = _add_derived(pd.DataFrame([row]))[features]
     probability = float(pipeline.predict_proba(X)[0, 1])
 
-    # Report against this mode's inputs only, so nothing appears in the inputs
-    # table that the model did not actually use.
+    # Report against this mode's inputs only, so nothing appears in the inputs table that the model didn't actually use.
     user_features = (
         POST_DELIVERY_USER_FEATURES if mode == "post_delivery" else AT_PURCHASE_USER_FEATURES
     )
-    
+    #Track which features were derived from others, used in UI
     derived = set()
     if stated.get("days_late") is not None:
         derived.add("delivery_days")
@@ -364,7 +358,7 @@ def extract_features(question: str) -> tuple[dict, dict]:
         if block.type == "tool_use":
             payload = block.input
             break
-
+        
     stated = {k: v for k, v in payload.items() if k in USER_FEATURES and v is not None}
     ignored = {
         k: v
@@ -373,7 +367,7 @@ def extract_features(question: str) -> tuple[dict, dict]:
     }
     return stated, ignored
 
-
+#for ignoring placeholders
 _PLACEHOLDERS = {"", "unknown", "n/a", "na", "none", "null", "not specified", "not mentioned"}
 
 
